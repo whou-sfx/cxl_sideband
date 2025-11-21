@@ -1,0 +1,35 @@
+
+# build
+
+make 
+
+make send
+make demo
+
+# test
+
+## load module
+sudo insmod mctp_bridge.ko
+
+## add route and adress of eid 8 to mctp_bridge0 net_dev
+sudo mctp route add 8 dev mctp_bridge0
+sudo mctp address add 8 dev mctp_bridge0
+
+## show route and net_intf cfg
+sudo mctp link show mctp_bridge0
+
+
+## start recving demo
+sudo ./demo
+
+## send hello world
+sudo ./send
+
+
+# Trac
+## trace userspace sendto 
+sudo strace -e trace=sendto ./send
+
+## trac kernel symbols by kprobe
+sudo ./frace.sh $kern_symbol
+

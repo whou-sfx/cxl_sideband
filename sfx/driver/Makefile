@@ -7,9 +7,9 @@ all:
 	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules
 
 clean:
-	rm -f test
+	rm -f demo send
 	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
 
 
 test:
-	gcc test.c -o test
+	gcc demo.c -o demo

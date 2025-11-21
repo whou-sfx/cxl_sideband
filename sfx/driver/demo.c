@@ -82,6 +82,7 @@ int main(void)
             }
 
             printf("\n[RECV %d bytes]:\n", n);
+            printf("%s\n", buf+5);
             print_hex(buf, n);
         }
 
