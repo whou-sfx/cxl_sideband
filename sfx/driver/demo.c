@@ -6,9 +6,22 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <poll.h>
+#include <linux/mctp.h>
 
 #define DEVICE "/dev/mctp_bridge"
 #define MAX_BUF 2048
+
+#define MSG_TYPE_PLDM 1
+#define DEV_EID 8
+#define HOST_EID 1
+
+/* MCTP packet definitions */
+struct mctp_hdr {
+    uint8_t  ver;
+    uint8_t  dst;                                                                                                                 
+    uint8_t  src;
+    uint8_t  flags_seq_tag;
+};
 
 /* 将字符串中的 hex token 转成 bytes */
 int parse_hex_string(const char *input, uint8_t *output, int max_len)
@@ -48,6 +61,19 @@ void print_hex(const uint8_t *buf, int len)
         printf("\n");
 }
 
+int bridge_send_to_dev(uint8_t *buf, int len)
+{
+    struct mctp_hdr *hdr = (struct mctp_hdr *)buf;
+    uint8_t msg_type = *(buf + sizeof(struct mctp_hdr));
+    char *payload = buf + sizeof(struct mctp_hdr) + 1;
+    printf("hdr[ver: %x, dst: %x, src:%x, flags_tag: %x], msg_type: %x, len: %x]\n",
+           hdr->ver, hdr->dst, hdr->src, hdr->flags_seq_tag, msg_type, len);
+
+    printf("%s\n", payload);
+    return 0;
+}
+
+
 int main(void)
 {
     int fd = open(DEVICE, O_RDWR);
@@ -82,8 +108,8 @@ int main(void)
             }
 
             printf("\n[RECV %d bytes]:\n", n);
-            printf("%s\n", buf+5);
             print_hex(buf, n);
+            bridge_send_to_dev(buf, n);
         }
 
         /* 非阻塞检测用户输入 */
@@ -100,11 +126,20 @@ int main(void)
                 continue;
 
             uint8_t out_buf[MAX_BUF];
-            int len = parse_hex_string(line, out_buf, sizeof(out_buf));
+            struct mctp_hdr *hdr = (struct mctp_hdr *)out_buf;
+            memset(out_buf, 0, sizeof(out_buf));
+            hdr->ver = 0x01;
+            hdr->dst = HOST_EID;
+            hdr->src = DEV_EID;
+            hdr->flags_seq_tag = 0xC8;
+            out_buf[4]  = MSG_TYPE_PLDM;
+
+            int len = parse_hex_string(line, out_buf + 5, sizeof(out_buf) - 5);
             if (len < 0) {
                 printf("Invalid hex format. Example: 01 02 FF A0\n");
                 continue;
             }
+            len += 5;
 
             printf("[SEND %d bytes]\n", len);
             print_hex(out_buf, len);

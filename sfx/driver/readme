@@ -11,9 +11,16 @@ make demo
 ## load module
 sudo insmod mctp_bridge.ko
 
+## enable netdev
+sudo ip link set mctp_bridge0 up
+注意，一定要配置dev up, 否则在mctp_route_output 的时候，会由于outdev link down 丢弃该报文。 由于是UDP的，会silent discard
+
 ## add route and adress of eid 8 to mctp_bridge0 net_dev
-sudo mctp route add 8 dev mctp_bridge0
+
+sudo mctp route add 8 via mctp_bridge0
 sudo mctp address add 8 dev mctp_bridge0
+
+注意一定要先加route , 再绑定 address, 否则route会添加失败
 
 ## show route and net_intf cfg
 sudo mctp link show mctp_bridge0
@@ -26,6 +33,10 @@ sudo ./demo
 sudo ./send
 
 
+
+## Some Useful debug command
+sudo ip link show
+
 # Trac
 ## trace userspace sendto 
 sudo strace -e trace=sendto ./send
@@ -33,3 +44,9 @@ sudo strace -e trace=sendto ./send
 ## trac kernel symbols by kprobe
 sudo ./frace.sh $kern_symbol
 
+### Kernel send flow trace one by one
+sudo ./frace.sh mctp_sendmsg
+
+sudo ./frace.sh mctp_route_lookup
+
+    sudo ./frace.sh mctp_route_output

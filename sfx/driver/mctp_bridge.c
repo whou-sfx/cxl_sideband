@@ -94,6 +94,11 @@ static netdev_tx_t mbridge_start_xmit(struct sk_buff *skb, struct net_device *de
 
     /* queue for the char device reader */
     mutex_lock(&tx_queue_lock);  // 加锁
+    
+    /* 打印skb关键信息和前5个字节 */
+    dev_dbg(&dev->dev, "%s SKB info: len=%u, protocol=0x%04x, data=%*ph\n",
+            __func__,nskb->len,  ntohs(nskb->protocol), 5, nskb->data);
+    
     skb_queue_tail(&tx_to_daemon, nskb);
     mutex_unlock(&tx_queue_lock);  // 解锁
     wake_up_interruptible(&tx_wq);
@@ -135,7 +140,10 @@ static ssize_t mbridge_chr_read(struct file *file, char __user *buf,
         if (!skb)
             return -ERESTARTSYS;
     }
-
+    /* 打印skb关键信息和前5个字节 */
+    dev_dbg(&mbridge_dev->dev, "%s SKB info: len=%u, protocol=0x%04x, data=%*ph\n",
+            __func__, skb->len,  ntohs(skb->protocol), 5, skb->data);
+ 
     to_copy = min(count, (size_t)skb->len);
 
     if (copy_to_user(buf, skb->data, to_copy)) {
@@ -172,6 +180,10 @@ static ssize_t mbridge_chr_write(struct file *file, const char __user *buf,
 
     skb->dev = mbridge_dev;
     skb->protocol = htons(ETH_P_MCTP);  // 改为MCTP协议
+
+   /* 打印skb关键信息和前5个字节 */
+    dev_dbg(&mbridge_dev->dev, "%s SKB info: len=%u, protocol=0x%04x, data=%*ph\n",
+            __func__, skb->len,  ntohs(skb->protocol), 5, skb->data);
 
     netif_rx(skb);
 
@@ -213,7 +225,7 @@ static void mctp_setup(struct net_device *dev)
     
     // 设置其他MCTP特定的参数
 
-    // dev->dev_addr[0] = MCTP_EID; /*Maybe need be set when open */
+    //dev->dev_addr[0] = MCTP_EID; /*Maybe need be set when open */
 
     dev->netdev_ops = &mbridge_netdev_ops;
 }
