@@ -15,8 +15,9 @@
 #include <linux/mctp.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <poll.h> // Added for poll
 
-#define LOCAL_EID 8
+#define LOCAL_EID 19
 #define DEST_EID  8
 #define PLDM_TYPE 1
 
@@ -35,19 +36,19 @@ int main(void) {
     }
 
     /** // 2) bind 本地 EID */
-    /** memset(&src, 0, sizeof(src)); */
-    /** src.smctp_family = AF_MCTP; */
-    /** src.smctp_network = MCTP_NET_ANY; */
-    /** src.smctp_addr.s_addr = LOCAL_EID; */
-    /** src.smctp_type = PLDM_TYPE; */
-    /** src.smctp_tag = 0; */
-    /**  */
-    /** if (bind(sock, (struct sockaddr*)&src, sizeof(src)) < 0) { */
-    /**     perror("bind"); */
-    /**     close(sock); */
-    /**     return -1; */
-    /** } */
-    /**  */
+    memset(&src, 0, sizeof(src));
+    src.smctp_family = AF_MCTP;
+    src.smctp_network = MCTP_NET_ANY;
+    src.smctp_addr.s_addr = LOCAL_EID;
+    src.smctp_type = PLDM_TYPE;
+    src.smctp_tag = MCTP_TAG_OWNER;
+
+    if (bind(sock, (struct sockaddr*)&src, sizeof(src)) < 0) {
+        perror("bind");
+        close(sock);
+        return -1;
+    }
+
 
     // 3) 构造 payload
     /* arbitrary message to send, with message-type header */
@@ -74,6 +75,47 @@ int main(void) {
     }
 
     printf("Sent %zd bytes over AF_MCTP\n", sent);
+
+    while (1) {
+        // 6) 设置polling等待接收数据
+        struct pollfd fds[1];
+        fds[0].fd = sock;
+        fds[0].events = POLLIN;
+
+        int ret = poll(fds, 1, 5000); // 等待5秒
+        if (ret < 0) {
+            perror("poll");
+            close(sock);
+            return -1;
+        } else if (ret == 0) {
+            printf("Timeout: no data received within 5 seconds\n");
+        } else {
+            // 7) 接收数据
+            uint8_t recv_buf[128];
+            struct sockaddr_mctp from_addr;
+            socklen_t from_len = sizeof(from_addr);
+
+            ssize_t received = recvfrom(sock, recv_buf, sizeof(recv_buf), 0,
+                                    (struct sockaddr*)&from_addr, &from_len);
+            if (received < 0) {
+                perror("recvfrom");
+            } else {
+                printf("Received %zd bytes from EID %u:, msgType: %x\n", received, from_addr.smctp_addr.s_addr
+                    , from_addr.smctp_type);
+                printf("Data: ");
+                for (int i = 0; i < received; i++) {
+                    printf("%02x ", recv_buf[i]);
+                }
+                printf("\n");
+
+                // 如果数据是文本，也打印文本内容
+                if (received > 0 && recv_buf[0] == PLDM_TYPE) {
+                    printf("Text: %s\n", recv_buf + 1);
+                }
+            }
+        }
+    }
+
     close(sock);
     return 0;
 }

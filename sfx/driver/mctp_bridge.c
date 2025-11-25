@@ -25,6 +25,7 @@
 #include <linux/poll.h>
 #include <linux/mutex.h>
 #include <linux/if_arp.h>
+#include <net/mctp.h>
 
 #include <linux/version.h>
 
@@ -180,15 +181,22 @@ static ssize_t mbridge_chr_write(struct file *file, const char __user *buf,
 
     skb->dev = mbridge_dev;
     skb->protocol = htons(ETH_P_MCTP);  // 改为MCTP协议
+    /*init magic for mctp cb*/
+    __mctp_cb(skb);
 
-   /* 打印skb关键信息和前5个字节 */
-    dev_dbg(&mbridge_dev->dev, "%s SKB info: len=%u, protocol=0x%04x, data=%*ph\n",
-            __func__, skb->len,  ntohs(skb->protocol), 5, skb->data);
 
-    netif_rx(skb);
+    skb->mac_header = skb->data;
+    skb_reset_network_header(skb);
 
     mbridge_dev->stats.rx_packets++;
     mbridge_dev->stats.rx_bytes += count;
+
+
+   /* 打印skb关键信息和前5个字节 */
+    dev_dbg(&mbridge_dev->dev, "%s SKB info: len=%u, protocol=0x%04x, data=%*ph\n",
+            __func__, skb->len,  ntohs(skb->protocol), (int)count, skb->data);
+
+    netif_rx(skb);
 
     return count;
 }

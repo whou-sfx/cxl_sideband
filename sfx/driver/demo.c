@@ -13,7 +13,7 @@
 
 #define MSG_TYPE_PLDM 1
 #define DEV_EID 8
-#define HOST_EID 1
+#define HOST_EID 19
 
 /* MCTP packet definitions */
 struct mctp_hdr {
