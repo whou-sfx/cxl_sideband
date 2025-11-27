@@ -17,6 +17,8 @@ struct mctp_hdr {
 };
 
 #define MSG_TYPE_PLDM 1
+#define MSG_TYPE_CXLCCI  8
+
 
 int write_to_host(uint8_t* out_buf, int len);
 #endif

@@ -9,6 +9,7 @@
 #include <linux/mctp.h>
 #include "pldm.h"
 #include "mctp.h"
+#include "cxl_cci.h"
 
 #define DEVICE "/dev/mctp_bridge"
 #define MAX_BUF 2048
@@ -18,6 +19,7 @@
 
 uint8_t cur_tag = 0;
 int g_fd = 0;
+
 
 /* 将字符串中的 hex token 转成 bytes */
 int parse_hex_string(const char *input, uint8_t *output, int max_len)
@@ -57,6 +59,23 @@ void print_hex(const uint8_t *buf, int len)
         printf("\n");
 }
 
+int handle_cci_req(unsigned char *buf, int len)
+{
+    struct mctp_hdr *hdr = (struct mctp_hdr *)buf;
+    uint8_t tmp_eid = hdr->dst;
+    hdr->dst = hdr->src;
+    hdr->src = tmp_eid;
+    hdr->flags_seq_tag &= 0xF7; /*clear the TO bits*/
+
+    struct cxlmi_cci_msg *cci_msg = (struct cxlmi_cci_msg *)(buf + sizeof(struct mctp_hdr) + 1);
+
+    printf("cci command [0x%x 0x%x]\n", cci_msg->command_set, cci_msg->command);
+
+    cci_msg->return_code = 0;
+    cci_msg->category = 1;
+    
+    return write_to_host(buf, len);
+}
 
 int handle_req_from_host(uint8_t *buf, int len)
 {
@@ -71,6 +90,10 @@ int handle_req_from_host(uint8_t *buf, int len)
     if (msg_type == MSG_TYPE_PLDM) {
         printf("PLDM message received, handling PLDM request\n");
         return handle_pldm_req(buf, len);
+    } else if (msg_type == MSG_TYPE_CXLCCI) {
+        printf("CXLCCI message received, handling CCI request\n");
+        return handle_cci_req(buf, len);
+
     } else {
         printf("Non-PLDM message type: 0x%02x\n", msg_type);
         printf("Payload: %s\n", payload);
