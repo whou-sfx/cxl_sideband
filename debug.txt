@@ -1,0 +1,35 @@
+
+## Resp Fail
+
+ENTER mctp_pkttype_receive           arg0=ffff92afd7ca5d00 arg1=ffff92aea6ee3000 arg2=ffffffffb7be0440
+ENTER mctp_route_lookup              arg0=ffffffffb836bb40 arg1=1 arg2=13
+EXIT  mctp_pkttype_receive           ret=ffff92ae06284e40
+ENTER mctp_route_input               arg0=ffff92ae06284e40 arg1=ffff92afd7ca5d00 arg2=ffff92ae06284e40
+ENTER mctp_lookup_key.isra.0         arg0=ffffffffb836bb40 arg1=40 arg2=ffff92ae16f8cc80
+EXIT  mctp_route_input               ret=0
+ENTER mctp_lookup_key.isra.0         arg0=ffffffffb836bb40 arg1=40 arg2=ffff92ae16f8cc80
+EXIT  mctp_route_input               ret=0
+EXIT  mctp_pkttype_receive           ret=fffffffe
+ENTER mctp_route_release             arg0=ffff92ae06284e40 arg1=0 arg2=0
+EXIT  mctp_pkttype_receive           ret=0
+ENTER mctp_dev_put                   arg0=ffff92ae11ad87c0 arg1=0 arg2=0
+EXIT  mctp_pkttype_receive           ret=0
+EXIT  __netif_receive_skb_one_core   ret=0
+
+###Resp to send Success
+ENTER mctp_pkttype_receive           arg0=ffff92af9f204d00 arg1=ffff92aea6ee3000 arg2=ffffffffb7be0440
+ENTER mctp_route_lookup              arg0=ffffffffb836bb40 arg1=1 arg2=13
+EXIT  mctp_pkttype_receive           ret=ffff92ae06284e40
+ENTER mctp_route_input               arg0=ffff92ae06284e40 arg1=ffff92af9f204d00 arg2=ffff92ae06284e40
+ENTER mctp_lookup_key.isra.0         arg0=ffffffffb836bb40 arg1=40 arg2=ffff92ae046f8280
+EXIT  mctp_route_input               ret=0
+ENTER mctp_lookup_key.isra.0         arg0=ffffffffb836bb40 arg1=40 arg2=ffff92ae046f8280
+EXIT  mctp_route_input               ret=0
+EXIT  mctp_pkttype_receive           ret=0
+ENTER mctp_route_release             arg0=ffff92ae06284e40 arg1=0 arg2=0
+EXIT  mctp_pkttype_receive           ret=0
+ENTER mctp_dev_put                   arg0=ffff92ae11ad87c0 arg1=0 arg2=0
+EXIT  mctp_pkttype_receive           ret=0
+EXIT  __netif_receive_skb_one_core   ret=0
+ENTER mctp_recvmsg                   arg0=ffff92ae414baa40 arg1=ffffb69240be7d40 arg2=80
+EXIT  sock_recvmsg                   ret=5
