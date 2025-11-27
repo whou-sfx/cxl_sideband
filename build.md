@@ -127,12 +127,24 @@ gdb --args build/pldmtool raw
 
 
 ## pldmtool test example
+sudo pldmtool base GetPLDMVersion -m 8 -t 0 -v
 
-sudo pldmtool base GetPLDMVersion -m 8 -t 0 -v -n 10
+pldmtool: Tx: 81 00 03 00 00 00 00 01 00
+pldmtool: Rx: 01 00 03 00 00 00 00 01 00 01 01 01 01
+{
+    "CompletionCode": "SUCCESS",
+    "Response": "01.01.01\u0001"
+}
 
-demo Response payload
-01 00 03 00 00 00 00 01 00 01 00 00 00
+sudo pldmtool base GetTID -m 8 -v
 
+pldmtool: Tx: 81 00 02
+pldmtool: Rx: 01 00 02 00 42
+{
+    "Response": 66
+}
+
+### debug by gdb
 tcnsh@ubuntu22:~/whou/src/cxl_sideband/openbmc/pldm$ sudo gdb --args build/pldmtool/pldmtool base GetPLDMVersion -m 8 -t 0 -v
 GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
 Copyright (C) 2024 Free Software Foundation, Inc.
@@ -175,4 +187,24 @@ hdr[ver: 1, dst: 8, src:13, flags_tag: c8], msg_type: 1, len: e]
 
 01 13 08 C0 01 01 00 03 00 00 00 00 01 00 01 00
 
+01 13 08 C0 01 01 00 03 00 01 00 00 00 01 00
 
+
+
+## cxl cci build
+git clone https://github.com/computexpresslink/libcxlmi.git
+cd libcxlmi
+meson setup build
+meson compile -C build
+
+tcnsh@ubuntu22:~/whou/src/cxl_sideband/cci/libcxlmi$ sudo ./build/examples/cxl-mctp 1 8
+ep 1:8
+libcxlmi: Unexpected fixed length of response. 12 30
+libcxlmi: Unexpected fixed length of response. 12 30
+libcxlmi: Unexpected fixed length of response. 12 20
+libcxlmi: Unexpected minimum length of response
+libcxlmi: Payload length not matching expected part of full message 0 8
+libcxlmi: Unexpected fixed length of response. 12 20
+libcxlmi: Unexpected minimum length of response
+libcxlmi: Unexpected minimum length of response
+-------------------------------------------------
