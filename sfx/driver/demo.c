@@ -15,6 +15,7 @@
 #define DEV_EID 8
 #define HOST_EID 19
 
+uint8_t cur_tag = 0;
 /* MCTP packet definitions */
 struct mctp_hdr {
     uint8_t  ver;
@@ -68,6 +69,7 @@ int bridge_send_to_dev(uint8_t *buf, int len)
     char *payload = buf + sizeof(struct mctp_hdr) + 1;
     printf("hdr[ver: %x, dst: %x, src:%x, flags_tag: %x], msg_type: %x, len: %x]\n",
            hdr->ver, hdr->dst, hdr->src, hdr->flags_seq_tag, msg_type, len);
+    cur_tag = hdr->flags_seq_tag;
 
     printf("%s\n", payload);
     return 0;
@@ -131,7 +133,7 @@ int main(void)
             hdr->ver = 0x01;
             hdr->dst = HOST_EID;
             hdr->src = DEV_EID;
-            hdr->flags_seq_tag = 0xC8;
+            hdr->flags_seq_tag = cur_tag & 0xF7; /*mask the TO bit*/
             out_buf[4]  = MSG_TYPE_PLDM;
 
             int len = parse_hex_string(line, out_buf + 5, sizeof(out_buf) - 5);

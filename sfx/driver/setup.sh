@@ -18,7 +18,7 @@ sudo ip link set mctp_bridge0 up
 ### remote EID 8
 
 sudo mctp route add 8 via mctp_bridge0
-sudo mctp address add 8 dev mctp_bridge0
+#sudo mctp address add 8 dev mctp_bridge0
 
 ### set the local dev eid so bind/recvfrom can get msg
 sudo mctp address add 19 dev mctp_bridge0

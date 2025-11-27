@@ -39,7 +39,7 @@ int main(void) {
     memset(&src, 0, sizeof(src));
     src.smctp_family = AF_MCTP;
     src.smctp_network = MCTP_NET_ANY;
-    src.smctp_addr.s_addr = LOCAL_EID;
+    src.smctp_addr.s_addr = MCTP_ADDR_ANY;
     src.smctp_type = PLDM_TYPE;
     src.smctp_tag = MCTP_TAG_OWNER;
 
