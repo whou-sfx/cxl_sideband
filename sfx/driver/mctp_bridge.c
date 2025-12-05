@@ -1,10 +1,10 @@
 /*************************************************************************
 @File Name: mctp_bridge.c
-@Desc: 
+@Desc: MCTP Bridge Kernel Module
 @Author: Andy-wei.hou
-@Mail: wei.hou@scaleflux.com 
-@Created Time: 2025年11月19日 星期三 18时39分43秒
-@Log: 
+@Mail: wei.hou@scaleflux.com
+@Created Time: 2025-11-19 18:39:43
+@Log: Fixed for Linux kernel 6.14+
 ************************************************************************/
 // mctp_bridge.c – Fixed for Linux kernel 6.14+
 // Changes:
@@ -44,6 +44,8 @@
 #define DEV_NAME "mctp_bridge"
 #define DEFAULT_DEVNAME "mctp_bridge0"
 #define CHAR_DEV_BUF_MAX (64 * 1024)
+#define MCTP_DEFAULT_EID 8  /* Default MCTP Endpoint ID */
+#define MCTP_MTU 1024       /* MCTP Maximum Transmission Unit */
 
 static struct net_device *mbridge_dev;
 static dev_t mbridge_devnum;
@@ -53,7 +55,7 @@ static struct class *mbridge_class;
 /* correct type for skb queue */
 static struct sk_buff_head tx_to_daemon;
 static wait_queue_head_t tx_wq;
-static DEFINE_MUTEX(tx_queue_lock);  // 添加互斥锁
+static DEFINE_MUTEX(tx_queue_lock);  // Add mutex lock
 
 /* netdev ops */
 static netdev_tx_t mbridge_start_xmit(struct sk_buff *skb, struct net_device *dev);
@@ -93,15 +95,15 @@ static netdev_tx_t mbridge_start_xmit(struct sk_buff *skb, struct net_device *de
         return NETDEV_TX_OK;
     }
 
-    /* queue for the char device reader */
-    mutex_lock(&tx_queue_lock);  // 加锁
-    
-    /* 打印skb关键信息和前5个字节 */
+    /* Queue for the char device reader */
+    mutex_lock(&tx_queue_lock);  // Lock
+
+    /* Print SKB key information and first 5 bytes */
     dev_dbg(&dev->dev, "%s SKB info: len=%u, protocol=0x%04x, data=%*ph\n",
             __func__,nskb->len,  ntohs(nskb->protocol), 5, nskb->data);
-    
+
     skb_queue_tail(&tx_to_daemon, nskb);
-    mutex_unlock(&tx_queue_lock);  // 解锁
+    mutex_unlock(&tx_queue_lock);  // Unlock
     wake_up_interruptible(&tx_wq);
 
     dev->stats.tx_packets++;
@@ -117,34 +119,39 @@ static ssize_t mbridge_chr_read(struct file *file, char __user *buf,
 {
     struct sk_buff *skb;
     size_t to_copy;
+    int ret = 0;
 
     if (count == 0)
         return 0;
 
-    mutex_lock(&tx_queue_lock);  // 加锁
+    if (*ppos != 0)
+        return 0;
+
+    mutex_lock(&tx_queue_lock);
     skb = skb_dequeue(&tx_to_daemon);
-    mutex_unlock(&tx_queue_lock);  // 解锁
-    
+    mutex_unlock(&tx_queue_lock);
+
     if (!skb) {
         if (file->f_flags & O_NONBLOCK)
             return -EAGAIN;
 
-        // 使用标准的等待方式，在等待后重新检查
-        wait_event_interruptible(tx_wq, 
-            !skb_queue_empty(&tx_to_daemon));
-        
-        // 等待后被唤醒，重新尝试获取SKB
+        ret = wait_event_interruptible(tx_wq,
+                !skb_queue_empty(&tx_to_daemon));
+        if (ret)
+            return ret;
+
         mutex_lock(&tx_queue_lock);
         skb = skb_dequeue(&tx_to_daemon);
         mutex_unlock(&tx_queue_lock);
 
         if (!skb)
-            return -ERESTARTSYS;
+            return -EIO;
     }
-    /* 打印skb关键信息和前5个字节 */
+
+    /* Print SKB key information and first 5 bytes */
     dev_dbg(&mbridge_dev->dev, "%s SKB info: len=%u, protocol=0x%04x, data=%*ph\n",
             __func__, skb->len,  ntohs(skb->protocol), 5, skb->data);
- 
+
     to_copy = min(count, (size_t)skb->len);
 
     if (copy_to_user(buf, skb->data, to_copy)) {
@@ -165,8 +172,14 @@ static ssize_t mbridge_chr_write(struct file *file, const char __user *buf,
     if (!mbridge_dev)
         return -ENODEV;
 
+    if (count == 0)
+        return 0;
+
     if (count > CHAR_DEV_BUF_MAX)
         return -E2BIG;
+
+    if (*ppos != 0)
+        return 0;
 
     skb = netdev_alloc_skb_ip_align(mbridge_dev, count + NET_IP_ALIGN);
     if (!skb)
@@ -180,7 +193,7 @@ static ssize_t mbridge_chr_write(struct file *file, const char __user *buf,
     }
 
     skb->dev = mbridge_dev;
-    skb->protocol = htons(ETH_P_MCTP);  // 改为MCTP协议
+    skb->protocol = htons(ETH_P_MCTP);  // Set to MCTP protocol
     /*init magic for mctp cb*/
     __mctp_cb(skb);
 
@@ -192,11 +205,15 @@ static ssize_t mbridge_chr_write(struct file *file, const char __user *buf,
     mbridge_dev->stats.rx_bytes += count;
 
 
-   /* 打印skb关键信息和前5个字节 */
+   /* Print SKB key information and first bytes */
     dev_dbg(&mbridge_dev->dev, "%s SKB info: len=%u, protocol=0x%04x, data=%*ph\n",
             __func__, skb->len,  ntohs(skb->protocol), (int)count, skb->data);
 
-    netif_rx(skb);
+    if (netif_rx(skb) != NET_RX_SUCCESS) {
+        dev_err(&mbridge_dev->dev, "Failed to enqueue packet for processing\n");
+        dev_kfree_skb_any(skb);
+        return -EIO;
+    }
 
     return count;
 }
@@ -220,21 +237,21 @@ static const struct file_operations mbridge_fops = {
     .poll    = mbridge_chr_poll,
 };
 
-// 添加自定义的MCTP设备setup函数
+// Custom MCTP device setup function
 static void mctp_setup(struct net_device *dev)
 {
-    dev->type = ARPHRD_MCTP;  // 如果内核支持MCTP设备类型
-    // 或者使用其他合适的设备类型
-    
-    dev->mtu = 1024;  // MCTP通常有较小的MTU，根据实际需求调整
-    dev->hard_header_len = 0;  // MCTP通常不需要硬件头部
+    dev->type = ARPHRD_MCTP;  // Use MCTP device type
+
+    dev->mtu = MCTP_MTU;  // Set MCTP MTU
+    dev->hard_header_len = 0;  // MCTP doesn't require hardware header
     dev->addr_len = 0;
-    dev->flags = IFF_NOARP;  // MCTP通常不需要ARP
-    
-    // 设置其他MCTP特定的参数
+    dev->flags = IFF_NOARP;  // MCTP doesn't require ARP
 
-    //dev->dev_addr[0] = MCTP_EID; /*Maybe need be set when open */
-
+    // Set MCTP-specific parameters
+    // Set endpoint ID in device address
+    // memset(dev->dev_addr, 0, sizeof(dev->dev_addr));
+    // dev->dev_addr[0] = MCTP_DEFAULT_EID;
+    //
     dev->netdev_ops = &mbridge_netdev_ops;
 }
 
@@ -289,17 +306,24 @@ err_free_netdev:
 
 static void __exit mbridge_exit(void)
 {
-    device_destroy(mbridge_class, mbridge_devnum);
-    class_destroy(mbridge_class);
-    cdev_del(&mbridge_cdev);
-    unregister_chrdev_region(mbridge_devnum, 1);
+    if (mbridge_class && !IS_ERR(mbridge_class)) {
+        device_destroy(mbridge_class, mbridge_devnum);
+        class_destroy(mbridge_class);
+    }
 
-    unregister_netdev(mbridge_dev);
-    free_netdev(mbridge_dev);
+    if (mbridge_devnum) {
+        cdev_del(&mbridge_cdev);
+        unregister_chrdev_region(mbridge_devnum, 1);
+    }
 
-    mutex_lock(&tx_queue_lock);  // 清理时加锁
+    if (mbridge_dev) {
+        unregister_netdev(mbridge_dev);
+        free_netdev(mbridge_dev);
+    }
+
+    mutex_lock(&tx_queue_lock);  // Lock during cleanup
     skb_queue_purge(&tx_to_daemon);
-    mutex_unlock(&tx_queue_lock);  // 解锁
+    mutex_unlock(&tx_queue_lock);  // Unlock
 
     pr_info("mctp_bridge: unloaded\n");
 }

@@ -8,7 +8,7 @@
 #########################################################################
 #!/bin/bash
 
-sudo rmmod mctp_pridge
+sudo rmmod mctp_bridge
 sudo insmod mctp_bridge.ko
 
 ## enable netdev
