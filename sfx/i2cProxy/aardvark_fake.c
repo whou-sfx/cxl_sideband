@@ -267,9 +267,9 @@ int aa_i2c_slave_read(Aardvark aardvark, u08 *addr, u16 num_bytes, u08 *data_in)
             printf("FAKE: Generated I2C response of %d bytes\n", pos);
             print_hex(i2c_resp, pos);
 
-            /* Copy response to output buffer */
+            /* Copy response to output buffer, skip the 1st dst addr byte */
             int copy_bytes = (num_bytes > pos) ? pos : num_bytes;
-            memcpy(data_in, i2c_resp, copy_bytes);
+            memcpy(data_in, i2c_resp + 1, copy_bytes - 1);
             return copy_bytes;
         }
     }

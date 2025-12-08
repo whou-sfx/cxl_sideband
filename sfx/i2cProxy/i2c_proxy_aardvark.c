@@ -149,9 +149,10 @@ static int build_smbus_stream_from_af_mctp(const u8 *mctp_buf, size_t mctp_len, 
 
 /* 发送并等待响应：在同一线程里完成 Master → switch to slave → read response →
  * deliver */
-static int send_and_wait_response(u8 slave_addr_7bit,
-                                  const u8 *payload, size_t payload_len) {
+static int send_and_wait_response(const u8 *payload, size_t payload_len) {
 
+    u8 slave_addr_7bit = payload[0];
+    int len = payload_len - 1;
     pthread_mutex_lock(&aardvark_lock);
 
     if (aardvark <= 0) {
@@ -159,16 +160,15 @@ static int send_and_wait_response(u8 slave_addr_7bit,
         return -1;
     }
 
-    /* Aardvark 的 aa_i2c_write 需要传入 slave 地址 (u16), flags, len, data */
-    /* flags 用 AA_I2C_NO_FLAGS（一般） */
+    /* The 1st byte is dst_addr, and others are input to aa_i2c_write by payload*/
     int written = aa_i2c_write(aardvark, slave_addr_7bit, AA_I2C_NO_FLAGS,
-                                (u16)payload_len, payload);
+                                (u16)len, payload+1);
     if (written < 0) {
         fprintf(stderr, "aa_i2c_write error: %d\n", written);
         pthread_mutex_unlock(&aardvark_lock);
         return -1;
     }
-    if ((size_t)written != payload_len) {
+    if ((size_t)written != len ) {
         fprintf(stderr, "aa_i2c_write wrote %d / %zu\n", written, payload_len);
         return -2;
     }
@@ -188,7 +188,7 @@ static int send_and_wait_response(u8 slave_addr_7bit,
     while (elapsed < max_poll) {
         int rc_read = -1;
         /* aa_i2c_slave_read：读取从端发送来的字节（非阻塞） */
-        rc_read = aa_i2c_slave_read(aardvark, NULL, AARDVARK_MTU, rxbuf);
+        rc_read = aa_i2c_slave_read(aardvark, NULL, AARDVARK_MTU, rxbuf+1);
         if (rc_read > 0) {
             /* Process I2C link packet */
             printf("Received I2C link packet (%d bytes):\n", rc_read);
@@ -315,7 +315,7 @@ int i2c_handle_req_from_host(u8 *mctp_buf, int len) {
 
     ret  = build_smbus_stream_from_af_mctp(mctp_buf, len, sndbuf);
     if (ret > 0) {
-        ret = send_and_wait_response(sndbuf[0], sndbuf+1, ret-1);
+        ret = send_and_wait_response(sndbuf, ret);
     }
 
     if (ret < 0) {
