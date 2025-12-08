@@ -33,11 +33,11 @@ struct mctp_ctrl_resp {
 
 /* Header on the wire i2c */
 struct mctp_i2c_hdr {
-	u8 dest_slave;
-	u8 command;
+	uint8_t dest_slave;
+	uint8_t command;
 	/* Count of bytes following byte_count, excluding PEC */
-	u8 byte_count;
-	u8 source_slave;
+	uint8_t byte_count;
+	uint8_t source_slave;
 };
 
 #pragma pack(pop)

@@ -11,7 +11,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#define FAKE_AARDVARK 1
 
 /* 配置 */
 #define AARDVARK_PORT 0     /* 或者 detect/枚举 */
@@ -29,16 +28,13 @@ static pthread_mutex_t aardvark_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*0 for send ; 1 for recv*/
 static u8 Aardvark_buf[2][AARDVARK_MTU];
-#define MCTP_I2C_HDR_LEN   (sizeof(struct mctp_i2c_hdr) + 1)
+#define MCTP_I2C_HDR_LEN   (sizeof(struct mctp_i2c_hdr))
 
 u8 g_ldst = 0x42, g_lsrc = 0x41;
 
 /* Aardvark 初始化（Master Write 模式）*/
 static int aardvark_init(void) {
 
-#if (FAKE_AARDVARK  == 1)
-    return 0;
-#endif
     int bitrate;
     /* 打开设备 */
     aardvark = aa_open(AARDVARK_PORT);
@@ -97,6 +93,9 @@ u8 i2c_smbus_pec(u8 crc, u8 *p, size_t count)
 
 	for (i = 0; i < count; i++)
 		crc = crc8((crc ^ p[i]) << 8);
+
+    printf("calc crc8 0x%x for :  ", crc);
+    print_hex(p, count);
 	return crc;
 }
 
@@ -105,7 +104,7 @@ static int mctp_i2c_header_create(u8 llsrc, u8 lldst, u8 *out_buf, unsigned int 
 {
 	struct mctp_i2c_hdr *hdr;
 
-	if (mctp_len + MCTP_I2C_HDR_LEN > AARDVARK_MTU) {
+	if (mctp_len + MCTP_I2C_HDR_LEN + 1 > AARDVARK_MTU) {
         fprintf(stderr, "too big mctp_len %d", mctp_len);
         return -1;
     }
@@ -191,8 +190,47 @@ static int send_and_wait_response(u8 slave_addr_7bit,
         /* aa_i2c_slave_read：读取从端发送来的字节（非阻塞） */
         rc_read = aa_i2c_slave_read(aardvark, NULL, AARDVARK_MTU, rxbuf);
         if (rc_read > 0) {
-            //TODO proc i2c link packet and then delvier mctp packet to host
-            write_to_host(rxbuf, rc_read);
+            /* Process I2C link packet */
+            printf("Received I2C link packet (%d bytes):\n", rc_read);
+            print_hex(rxbuf, rc_read);
+
+            /* Check packet has minimum length for I2C header + MCTP + PEC */
+            if (rc_read < MCTP_I2C_HDR_LEN + 1) {  /* header + at least 1 byte MCTP + PEC */
+                fprintf(stderr, "Packet too short: %d bytes\n", rc_read);
+                got = 1;
+                break;
+            }
+
+            /* Calculate PEC and verify */
+            u8 calculated_pec = i2c_smbus_pec(0, rxbuf, rc_read - 1);
+            u8 received_pec = rxbuf[rc_read - 1];
+
+            if (calculated_pec != received_pec) {
+                fprintf(stderr, "PEC verification failed: calc=0x%02x, recv=0x%02x\n",
+                        calculated_pec, received_pec);
+                got = 1;
+                break;
+            }
+            printf("PEC verification passed\n");
+
+            /* Extract MCTP packet (skip I2C header, exclude PEC) */
+            struct mctp_i2c_hdr *i2c_hdr = (struct mctp_i2c_hdr *)rxbuf;
+            int mctp_pkt_len = rc_read - MCTP_I2C_HDR_LEN - 1;  /* total - header - PEC */
+            u8 *mctp_packet = rxbuf + MCTP_I2C_HDR_LEN;
+
+            /* Verify byte count matches */
+            if (i2c_hdr->byte_count != mctp_pkt_len + 1) {  /* +1 for source_slave */
+                fprintf(stderr, "Byte count mismatch: hdr=%d, calc=%d\n",
+                        i2c_hdr->byte_count, mctp_pkt_len + 1);
+                got = 1;
+                break;
+            }
+
+            printf("Extracted MCTP packet (%d bytes):\n", mctp_pkt_len);
+            print_hex(mctp_packet, mctp_pkt_len);
+
+            /* Deliver MCTP packet to host */
+            write_to_host(mctp_packet, mctp_pkt_len);
             got = 1;
             break;
         }
@@ -276,16 +314,9 @@ int i2c_handle_req_from_host(u8 *mctp_buf, int len) {
     memset(sndbuf, 0x00, AARDVARK_MTU);
 
     ret  = build_smbus_stream_from_af_mctp(mctp_buf, len, sndbuf);
-#if (FAKE_AARDVARK == 1)
-    printf("I2C Tx to Slave 0x%x, len %d ", sndbuf[0], ret);
-    print_hex(sndbuf+1, ret -1);
-    /*force to return Erro*/
-    ret = -1;
-#else
     if (ret > 0) {
-        ret = send_and_wait_response(sndbuf[0], sndbuf+1, ret -1);
+        ret = send_and_wait_response(sndbuf[0], sndbuf+1, ret-1);
     }
-#endif
 
     if (ret < 0) {
         //TODO send error response to host
@@ -308,9 +339,6 @@ int i2c_proxy_init() {
 }
 
 void i2c_proxy_close() {
-#if (FAKE_AARDVARK == 1) 
-    return;
-#endif
     /* 清理 */
     if (aardvark > 0) {
         aa_close(aardvark);
