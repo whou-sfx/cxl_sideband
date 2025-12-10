@@ -30,7 +30,7 @@ static pthread_mutex_t aardvark_lock = PTHREAD_MUTEX_INITIALIZER;
 static u8 Aardvark_buf[2][AARDVARK_MTU];
 #define MCTP_I2C_HDR_LEN   (sizeof(struct mctp_i2c_hdr))
 
-u8 g_ldst = 0x42, g_lsrc = 0x41;
+u8 g_ldevdst = 0x42, g_lsrc = 0x41;
 
 /* Aardvark 初始化（Master Write 模式）*/
 static int aardvark_init(void) {
@@ -68,7 +68,7 @@ static int aardvark_init(void) {
     return 0;
 }
 
-u8 crc8(u8 data)
+static u8 crc8(u8 data)
 {
     u8 crc = data;
     for (int i = 0; i < 8; i++) {
@@ -87,7 +87,7 @@ u8 crc8(u8 data)
  *
  * Incremental CRC8 over count bytes in the array pointed to by p
  */
-u8 i2c_smbus_pec(u8 crc, u8 *p, size_t count)
+static u8 i2c_smbus_pec(u8 crc, u8 *p, size_t count)
 {
 	int i;
 
@@ -131,7 +131,7 @@ static int build_smbus_stream_from_af_mctp(const u8 *mctp_buf, size_t mctp_len, 
     }
 
     /*i2c link header for smbus*/
-    pos = mctp_i2c_header_create(g_lsrc, g_ldst, out_buf, mctp_len);
+    pos = mctp_i2c_header_create(g_lsrc, g_ldevdst, out_buf, mctp_len);
     if (pos < 0) {
         perror("build i2c header fail");
         return -2;
@@ -144,6 +144,8 @@ static int build_smbus_stream_from_af_mctp(const u8 *mctp_buf, size_t mctp_len, 
     /*pec*/
 	out_buf[pos] = i2c_smbus_pec(0, (u8 *)out_buf, pos);
     pos++;
+    printf("Build I2C packets: ");
+    print_hex(out_buf, pos);
     return pos;
 }
 
@@ -151,7 +153,7 @@ static int build_smbus_stream_from_af_mctp(const u8 *mctp_buf, size_t mctp_len, 
  * deliver */
 static int send_and_wait_response(const u8 *payload, size_t payload_len) {
 
-    u8 slave_addr_7bit = payload[0];
+    u8 slave_addr_7bit = payload[0]>>1;
     int len = payload_len - 1;
     pthread_mutex_lock(&aardvark_lock);
 
@@ -170,78 +172,112 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
     }
     if ((size_t)written != len ) {
         fprintf(stderr, "aa_i2c_write wrote %d / %zu\n", written, payload_len);
+        pthread_mutex_unlock(&aardvark_lock);
+
         return -2;
     }
 
     /* 切换到 slave 模式并轮询 */
     /* 设置为 slave 模式：使用 aa_i2c_slave_enable(aardvark, slave_addr) 等 */
+    /* No need to set response as MCTP is UDP style transaction, no need to ACK*/
     //TODO
-    int ena = aa_i2c_slave_enable(aardvark, 1, 0 , 0); /* 1 to enable (查看API精确签名) */
+    int ena = aa_i2c_slave_enable(aardvark, g_lsrc, AARDVARK_MTU, AARDVARK_MTU);
+    if (ena) {
+        perror("slave enable fail\n");
+        pthread_mutex_unlock(&aardvark_lock);
+        return -3;
+    }
 
-
-    /* 简化：轮询一小段时间，看是否有数据 */
+    /* Optimized polling using aa_async_poll with exponential backoff */
     const int max_poll = 500; /* ms */
+    const int poll_timeout = 50; /* Max 50ms per poll */
     int elapsed = 0;
     int got = 0;
     u8 *rxbuf = Aardvark_buf[1];
     memset(rxbuf, 0x00, AARDVARK_MTU);
-    while (elapsed < max_poll) {
-        int rc_read = -1;
-        /* aa_i2c_slave_read：读取从端发送来的字节（非阻塞） */
-        rc_read = aa_i2c_slave_read(aardvark, NULL, AARDVARK_MTU, rxbuf+1);
-        if (rc_read > 0) {
-            /* Process I2C link packet */
-            printf("Received I2C link packet (%d bytes):\n", rc_read);
-            print_hex(rxbuf, rc_read);
 
-            /* Check packet has minimum length for I2C header + MCTP + PEC */
-            if (rc_read < MCTP_I2C_HDR_LEN + 1) {  /* header + at least 1 byte MCTP + PEC */
-                fprintf(stderr, "Packet too short: %d bytes\n", rc_read);
+    while (elapsed < max_poll && !got) {
+
+        int poll_result = aa_async_poll(aardvark, poll_timeout);
+        if (poll_result & AA_ASYNC_I2C_READ) {
+            /* I2C slave data available - read it */
+            int rc_read = aa_i2c_slave_read(aardvark, &rxbuf[0], AARDVARK_MTU, rxbuf+1);
+            if (rc_read > 0) {
+                /* Process I2C link packet */
+                printf("Received I2C link packet (%d bytes):\n", rc_read);
+                print_hex(rxbuf, rc_read);
+
+                if (rxbuf[0] != g_lsrc) {
+                    fprintf(stderr,"Received slave_addr 0x%x, expect 0x%x, drop and continue\n",
+                           (u8)rxbuf[0], g_lsrc);
+                    elapsed += poll_timeout;
+                    continue;
+                }
+
+                /* Check packet has minimum length for I2C header + MCTP + PEC */
+                if (rc_read < MCTP_I2C_HDR_LEN) {  /* header + at least 1 byte MCTP + PEC */
+                    fprintf(stderr, "Packet too short: %d bytes\n", rc_read);
+                    got = 0;
+                    break;
+                }
+
+                /* Calculate PEC and verify */
+                u8 calculated_pec = i2c_smbus_pec(0, rxbuf, rc_read - 1);
+                u8 received_pec = rxbuf[rc_read];
+
+                if (calculated_pec != received_pec) {
+                    fprintf(stderr, "PEC verification failed: calc=0x%02x, recv=0x%02x\n",
+                            calculated_pec, received_pec);
+                    got = 0;
+                    break;
+                }
+                printf("PEC verification passed\n");
+
+                /* Extract MCTP packet (skip I2C header, exclude PEC) */
+                struct mctp_i2c_hdr *i2c_hdr = (struct mctp_i2c_hdr *)rxbuf;
+                int mctp_pkt_len = rc_read - (MCTP_I2C_HDR_LEN - 1) - 1;  /* total - header(not include dst) - PEC */
+                u8 *mctp_packet = rxbuf + MCTP_I2C_HDR_LEN;
+
+                /* Verify byte count matches */
+                if (i2c_hdr->byte_count != mctp_pkt_len + 1) {  /* +1 for source_slave */
+                    fprintf(stderr, "Byte count mismatch: hdr=%d, calc=%d\n",
+                            i2c_hdr->byte_count, mctp_pkt_len + 1);
+                    got = 0;
+                    break;
+                }
+
+                printf("Extracted MCTP packet (%d bytes):\n", mctp_pkt_len);
+                print_hex(mctp_packet, mctp_pkt_len);
+
+                /* Deliver MCTP packet to host */
+                write_to_host(mctp_packet, mctp_pkt_len);
                 got = 1;
                 break;
-            }
-
-            /* Calculate PEC and verify */
-            u8 calculated_pec = i2c_smbus_pec(0, rxbuf, rc_read - 1);
-            u8 received_pec = rxbuf[rc_read - 1];
-
-            if (calculated_pec != received_pec) {
-                fprintf(stderr, "PEC verification failed: calc=0x%02x, recv=0x%02x\n",
-                        calculated_pec, received_pec);
-                got = 1;
+            } else if (rc_read < 0) {
+                /* Other error */
+                fprintf(stderr, "aa_i2c_slave_read error: %d\n", rc_read);
+                got = 0;
                 break;
             }
-            printf("PEC verification passed\n");
-
-            /* Extract MCTP packet (skip I2C header, exclude PEC) */
-            struct mctp_i2c_hdr *i2c_hdr = (struct mctp_i2c_hdr *)rxbuf;
-            int mctp_pkt_len = rc_read - MCTP_I2C_HDR_LEN - 1;  /* total - header - PEC */
-            u8 *mctp_packet = rxbuf + MCTP_I2C_HDR_LEN;
-
-            /* Verify byte count matches */
-            if (i2c_hdr->byte_count != mctp_pkt_len + 1) {  /* +1 for source_slave */
-                fprintf(stderr, "Byte count mismatch: hdr=%d, calc=%d\n",
-                        i2c_hdr->byte_count, mctp_pkt_len + 1);
-                got = 1;
-                break;
-            }
-
-            printf("Extracted MCTP packet (%d bytes):\n", mctp_pkt_len);
-            print_hex(mctp_packet, mctp_pkt_len);
-
-            /* Deliver MCTP packet to host */
-            write_to_host(mctp_packet, mctp_pkt_len);
-            got = 1;
+        } else if (poll_result == AA_ASYNC_NO_DATA) {
+            /* No data yet - continue waiting */
+            elapsed += poll_timeout;
+            continue;
+        } else if (poll_result < 0) {
+            /* Poll error */
+            fprintf(stderr, "aa_async_poll error: %d\n", poll_result);
+            got = 0;
             break;
+        } else {
+            /* Other async events (not I2C read) */
+            elapsed += poll_timeout;
         }
-        usleep(1000); /* 1ms */
-        elapsed += 1;
     }
 
     /* 禁用 slave（回到 master）*/
     aa_i2c_slave_disable(aardvark);
     pthread_mutex_unlock(&aardvark_lock);
-    return got ? 0 : -3; /* -2 超时 */
+    return got ? 0 : -4; /* -4 recv fail*/
 }
 
 static void dump_mctp_hdr(u8 *mctp_buf, int len) {

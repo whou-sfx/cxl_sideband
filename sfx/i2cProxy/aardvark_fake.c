@@ -133,7 +133,8 @@ static int handle_pldm_request(const uint8_t *mctp_buf, int len, u8 *resp_buf)
         resp_len += 1;
         break;
     }
-
+    printf("PLDM RESP Packet (%d): ", resp_len);
+    print_hex(resp_buf, resp_len);
     return resp_len;
 }
 
@@ -219,6 +220,10 @@ int aa_i2c_slave_enable(Aardvark aardvark, u08 addr, u16 maxTxBytes, u16 maxRxBy
     }
     return AA_OK;
 }
+int aa_async_poll (Aardvark aardvark, int timeout)
+{
+    return AA_ASYNC_I2C_READ;
+}
 
 int aa_i2c_slave_read(Aardvark aardvark, u08 *addr, u16 num_bytes, u08 *data_in)
 {
@@ -227,11 +232,7 @@ int aa_i2c_slave_read(Aardvark aardvark, u08 *addr, u16 num_bytes, u08 *data_in)
         return AA_INVALID_HANDLE;
     }
 
-    if (addr) {
-        *addr = 0x42; /* Fake address */
-    }
-
-    if (data_in && num_bytes > 0) {
+     if (data_in && num_bytes > 0) {
         /* Simulate receiving I2C write and generating PLDM response */
         printf("FAKE: Simulating slave response generation\n");
 
@@ -242,8 +243,9 @@ int aa_i2c_slave_read(Aardvark aardvark, u08 *addr, u16 num_bytes, u08 *data_in)
 
         printf("FAKE: I2C write had %d bytes total, MCTP packet %d bytes\n", total_len, mctp_len);
 
-        /* Extract source slave address (remove R/W bit) */
-        u8 source_slave = (i2c_hdr->source_slave >> 1) & 0x7F;
+        /* swtich link src/dst address (remove R/W bit) */
+        u8 source_slave = (i2c_hdr->dest_slave >> 1) & 0x7F;
+        u8 dst_slave = (i2c_hdr->source_slave >> 1) & 0x7F;
 
         /* Parse the MCTP packet (skip I2C header) */
         u8 *mctp_packet = g_fake_resp + sizeof(struct mctp_i2c_hdr);
@@ -252,10 +254,14 @@ int aa_i2c_slave_read(Aardvark aardvark, u08 *addr, u16 num_bytes, u08 *data_in)
         u8 resp_mctp[256];
         int resp_mctp_len = handle_pldm_request(mctp_packet, mctp_len, resp_mctp);
 
+        if (addr) {
+                *addr = dst_slave;
+            }
+
         if (resp_mctp_len > 0) {
             /* Build I2C response with header and PEC */
             u8 i2c_resp[1024];
-            int pos = build_i2c_header(source_slave, 0x42, i2c_resp, resp_mctp_len);
+            int pos = build_i2c_header(source_slave, dst_slave, i2c_resp, resp_mctp_len);
 
             memcpy(i2c_resp + pos, resp_mctp, resp_mctp_len);
             pos += resp_mctp_len;
@@ -268,8 +274,8 @@ int aa_i2c_slave_read(Aardvark aardvark, u08 *addr, u16 num_bytes, u08 *data_in)
             print_hex(i2c_resp, pos);
 
             /* Copy response to output buffer, skip the 1st dst addr byte */
-            int copy_bytes = (num_bytes > pos) ? pos : num_bytes;
-            memcpy(data_in, i2c_resp + 1, copy_bytes - 1);
+            int copy_bytes = (num_bytes > pos -1 ) ? pos-1 : num_bytes;
+            memcpy(data_in, i2c_resp + 1, copy_bytes);
             return copy_bytes;
         }
     }
