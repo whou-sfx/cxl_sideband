@@ -68,17 +68,19 @@ static int aardvark_init(void) {
     return 0;
 }
 
-static u8 crc8(u8 data)
+#define POLY    (0x1070U << 3)
+static u8 crc8(u16 data)
 {
-    u8 crc = data;
-    for (int i = 0; i < 8; i++) {
-        if (crc & 0x80)
-            crc = (crc << 1) ^ 0x07;   // SMBus CRC-8 polynomial
-        else
-            crc <<= 1;
-    }
-    return crc;
+	int i;
+
+	for (i = 0; i < 8; i++) {
+		if (data & 0x8000)
+			data = data ^ POLY;
+		data = data << 1;
+	}
+	return (u8)(data >> 8);
 }
+
 /**
  * i2c_smbus_pec - Incremental CRC8 over the given input data array
  * @crc: previous return crc8 value
@@ -87,18 +89,17 @@ static u8 crc8(u8 data)
  *
  * Incremental CRC8 over count bytes in the array pointed to by p
  */
-static u8 i2c_smbus_pec(u8 crc, u8 *p, size_t count)
+u8 i2c_smbus_pec(u8 crc, u8 *p, int count)
 {
 	int i;
 
 	for (i = 0; i < count; i++)
 		crc = crc8((crc ^ p[i]) << 8);
-
     printf("calc crc8 0x%x for :  ", crc);
     print_hex(p, count);
+ 
 	return crc;
 }
-
 
 static int mctp_i2c_header_create(u8 llsrc, u8 lldst, u8 *out_buf, unsigned int mctp_len)
 {
@@ -204,15 +205,16 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
             int rc_read = aa_i2c_slave_read(aardvark, &rxbuf[0], AARDVARK_MTU, rxbuf+1);
             if (rc_read > 0) {
                 /* Process I2C link packet */
-                printf("Received I2C link packet (%d bytes):\n", rc_read);
-                print_hex(rxbuf, rc_read);
-
                 if (rxbuf[0] != g_lsrc) {
                     fprintf(stderr,"Received slave_addr 0x%x, expect 0x%x, drop and continue\n",
                            (u8)rxbuf[0], g_lsrc);
                     elapsed += poll_timeout;
                     continue;
                 }
+                rxbuf[0] = rxbuf[0] <<1; /*restore the 1st byte from slave addr for later pec calc*/
+
+                printf("Received I2C link packet (%d bytes):\n", rc_read+1); /*with PEC*/
+                print_hex(rxbuf, rc_read+1);
 
                 /* Check packet has minimum length for I2C header + MCTP + PEC */
                 if (rc_read < MCTP_I2C_HDR_LEN) {  /* header + at least 1 byte MCTP + PEC */
@@ -222,7 +224,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
                 }
 
                 /* Calculate PEC and verify */
-                u8 calculated_pec = i2c_smbus_pec(0, rxbuf, rc_read - 1);
+                u8 calculated_pec = i2c_smbus_pec(0, rxbuf, rc_read);
                 u8 received_pec = rxbuf[rc_read];
 
                 if (calculated_pec != received_pec) {

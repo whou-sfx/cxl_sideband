@@ -40,27 +40,6 @@ struct pldm_header {
 };
 #pragma pack(pop)
 
-/* CRC-8 calculation (from i2c_proxy_aardvark.c) */
-static u8 crc8(u8 data)
-{
-    u8 crc = data;
-    for (int i = 0; i < 8; i++) {
-        if (crc & 0x80)
-            crc = (crc << 1) ^ 0x07;   // SMBus CRC-8 polynomial
-        else
-            crc <<= 1;
-    }
-    return crc;
-}
-
-static u8 i2c_smbus_pec(u8 crc, u8 *p, size_t count)
-{
-    int i;
-    for (i = 0; i < count; i++)
-        crc = crc8((crc ^ p[i]) << 8);
-    return crc;
-}
-
 /* Build MCTP I2C header */
 static int build_i2c_header(u8 llsrc, u8 lldst, u8 *out_buf, unsigned int mctp_len)
 {

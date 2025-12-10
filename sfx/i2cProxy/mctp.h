@@ -52,5 +52,7 @@ enum {
 
 };
 
+uint8_t i2c_smbus_pec(uint8_t crc, uint8_t *p, int count);
+
 int write_to_host(uint8_t* out_buf, int len);
 #endif
