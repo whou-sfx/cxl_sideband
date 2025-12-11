@@ -1,3 +1,6 @@
+## env
+10.33.118.41   现在是连接total phase和logical analyzer
+10.33.118.71   现在是连接Haps，用来program和uart
 
 ## mctp userspace toolkit
 git clone https://github.com/CodeConstruct/mctp
@@ -21,6 +24,8 @@ pipx install meson
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 
+sudo apt-get install cmake pkg-config git  systemd-dev
+
 sudo apt-get install -y libsystemd-dev
 sudo apt install python3-inflection python3-mako python3-yaml
 
@@ -28,12 +33,18 @@ sudo apt install python3-inflection python3-mako python3-yaml
 ## Build pldm
 cd plmd
 
-meson setup build -Dtransport-implementation=af-mctp
+meson setup build -Dtransport-implementation=af-mctp --reconfigure
 
 meson setup build -Dtransport-implementation=af-mctp -Dbuildtype=debug --reconfigure
 
 
 meson setup build -Dtransport-implementation=af-mctp -Dbuildtype=debug -Dtests=disabled --reconfigure
+
+
+
+##disable systemd
+
+meson setup build -Dtransport-implementation=af-mctp -Dbuildtype=debug -Dtests=disabled -Dsystemd=disabled --reconfigure
 
 
 

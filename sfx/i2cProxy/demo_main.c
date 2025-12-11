@@ -89,6 +89,8 @@ int main(int argc, char **argv) {
         perror("open host dev"); 
         return 1; 
      }
+    printf("open %s success\n", HOST_DEV);
+
     if (i2c_proxy_init()) {
         perror("init i2c proxy fail");
         return 1;

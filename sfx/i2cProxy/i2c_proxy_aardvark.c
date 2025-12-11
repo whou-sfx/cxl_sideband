@@ -18,8 +18,6 @@
 #define TLV_SEND_TIMEOUT_MS 500
 #define AARDVARK_MTU 1024
 
-#define I2C_DEVICE_SLAVE_ADDR 0x42
-#define I2C_MASTER_SOURCE_ADDR 0x01
 #define MCTP_I2C_COMMANDCODE 0x0F
 
 /* Aardvark device handle and lock */
@@ -30,7 +28,7 @@ static pthread_mutex_t aardvark_lock = PTHREAD_MUTEX_INITIALIZER;
 static u8 Aardvark_buf[2][AARDVARK_MTU];
 #define MCTP_I2C_HDR_LEN   (sizeof(struct mctp_i2c_hdr))
 
-u8 g_ldevdst = 0x42, g_lsrc = 0x41;
+u8 g_ldevdst = 0x44, g_lsrc = 0x41;
 
 /* Aardvark 初始化（Master Write 模式）*/
 static int aardvark_init(void) {
@@ -39,11 +37,11 @@ static int aardvark_init(void) {
     /* 打开设备 */
     aardvark = aa_open(AARDVARK_PORT);
     if (aardvark == AA_PORT_NOT_FREE && aardvark < 0) {
-        fprintf(stderr, "aa_open failed: %d\n", (int)aardvark);
+        fprintf(stderr, "[ERR]aa_open failed: %d\n", (int)aardvark);
         return -1;
     }
     if (aardvark <= 0) {
-        fprintf(stderr, "aa_open returned invalid handle: %d\n", (int)aardvark);
+        fprintf(stderr, "[ERR]aa_open returned invalid handle: %d\n", (int)aardvark);
         return -1;
     }
 
@@ -106,7 +104,7 @@ static int mctp_i2c_header_create(u8 llsrc, u8 lldst, u8 *out_buf, unsigned int 
 	struct mctp_i2c_hdr *hdr;
 
 	if (mctp_len + MCTP_I2C_HDR_LEN + 1 > AARDVARK_MTU) {
-        fprintf(stderr, "too big mctp_len %d", mctp_len);
+        fprintf(stderr, "[ERR]too big mctp_len %d", mctp_len);
         return -1;
     }
 
@@ -127,14 +125,14 @@ static int build_smbus_stream_from_af_mctp(const u8 *mctp_buf, size_t mctp_len, 
     size_t pos = 0;
 	
     if (!mctp_buf || mctp_len < 5 || !out_buf) {
-        perror("Invalid param");
+        fprintf(stderr, "[ERR] Invalid param");
         return -1;
     }
 
     /*i2c link header for smbus*/
     pos = mctp_i2c_header_create(g_lsrc, g_ldevdst, out_buf, mctp_len);
     if (pos < 0) {
-        perror("build i2c header fail");
+        fprintf(stderr, "[ERR] build i2c header fail");
         return -2;
     }
 
@@ -159,6 +157,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
     pthread_mutex_lock(&aardvark_lock);
 
     if (aardvark <= 0) {
+        fprintf(stderr, "[ERR]i2c handler not opened, %d\n", aardvark);
         pthread_mutex_unlock(&aardvark_lock);
         return -1;
     }
@@ -167,16 +166,17 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
     int written = aa_i2c_write(aardvark, slave_addr_7bit, AA_I2C_NO_FLAGS,
                                 (u16)len, payload+1);
     if (written < 0) {
-        fprintf(stderr, "aa_i2c_write error: %d\n", written);
+        fprintf(stderr, "[ERR]aa_i2c_write error: %d\n", written);
         pthread_mutex_unlock(&aardvark_lock);
         return -1;
     }
     if ((size_t)written != len ) {
-        fprintf(stderr, "aa_i2c_write wrote %d / %zu\n", written, payload_len);
+        fprintf(stderr, "[ERR]aa_i2c_write wrote %d / %zu\n", written, payload_len);
         pthread_mutex_unlock(&aardvark_lock);
 
         return -2;
     }
+    printf("Success Send %d Bytes\n", written);
 
     /* 切换到 slave 模式并轮询 */
     /* 设置为 slave 模式：使用 aa_i2c_slave_enable(aardvark, slave_addr) 等 */
@@ -184,7 +184,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
     //TODO
     int ena = aa_i2c_slave_enable(aardvark, g_lsrc, AARDVARK_MTU, AARDVARK_MTU);
     if (ena) {
-        perror("slave enable fail\n");
+        fprintf(stderr, "[ERR] slave enable fail\n");
         pthread_mutex_unlock(&aardvark_lock);
         return -3;
     }
@@ -218,7 +218,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
 
                 /* Check packet has minimum length for I2C header + MCTP + PEC */
                 if (rc_read < MCTP_I2C_HDR_LEN) {  /* header + at least 1 byte MCTP + PEC */
-                    fprintf(stderr, "Packet too short: %d bytes\n", rc_read);
+                    fprintf(stderr, "[ERR]Packet too short: %d bytes\n", rc_read);
                     got = 0;
                     break;
                 }
@@ -228,7 +228,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
                 u8 received_pec = rxbuf[rc_read];
 
                 if (calculated_pec != received_pec) {
-                    fprintf(stderr, "PEC verification failed: calc=0x%02x, recv=0x%02x\n",
+                    fprintf(stderr, "[ERR]PEC verification failed: calc=0x%02x, recv=0x%02x\n",
                             calculated_pec, received_pec);
                     got = 0;
                     break;
@@ -242,7 +242,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
 
                 /* Verify byte count matches */
                 if (i2c_hdr->byte_count != mctp_pkt_len + 1) {  /* +1 for source_slave */
-                    fprintf(stderr, "Byte count mismatch: hdr=%d, calc=%d\n",
+                    fprintf(stderr, "[ERR]Byte count mismatch: hdr=%d, calc=%d\n",
                             i2c_hdr->byte_count, mctp_pkt_len + 1);
                     got = 0;
                     break;
@@ -257,7 +257,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
                 break;
             } else if (rc_read < 0) {
                 /* Other error */
-                fprintf(stderr, "aa_i2c_slave_read error: %d\n", rc_read);
+                fprintf(stderr, "[ERR]aa_i2c_slave_read error: %d\n", rc_read);
                 got = 0;
                 break;
             }
@@ -267,7 +267,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
             continue;
         } else if (poll_result < 0) {
             /* Poll error */
-            fprintf(stderr, "aa_async_poll error: %d\n", poll_result);
+            fprintf(stderr, "[ERR]aa_async_poll error: %d\n", poll_result);
             got = 0;
             break;
         } else {
@@ -276,6 +276,9 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
         }
     }
 
+    if (elapsed >= max_poll && got == 0) {
+        fprintf(stderr, "[ERR] timeout, got resp fail\n");
+    }
     /* 禁用 slave（回到 master）*/
     aa_i2c_slave_disable(aardvark);
     pthread_mutex_unlock(&aardvark_lock);
@@ -303,7 +306,7 @@ static int build_mctp_ctrl_error_resp(const u8 *req_buf, int req_len,
 {
     if (req_len < sizeof(struct mctp_hdr)) {
 
-        perror("Invalid param");
+        fprintf(stderr, "[ERR] Invalid param");
         return -1;
     }
 
@@ -369,7 +372,7 @@ int i2c_handle_req_from_host(u8 *mctp_buf, int len) {
 }
 int i2c_proxy_init() {
     if (aardvark_init() != 0) {
-        fprintf(stderr, "aardvark init fail\n");
+        fprintf(stderr, "[ERR]aardvark init fail\n");
         return -1;
     }
 
