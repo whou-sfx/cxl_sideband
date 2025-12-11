@@ -30,13 +30,13 @@ static u8 g_fake_resp[4096];
 /* PLDM Header structure (copied from pldm.c) */
 #pragma pack(push, 1)
 struct pldm_header {
-    uint8_t instance_id : 5;   // bits 0–4
-    uint8_t rsvd        : 1;   // bit 5
-    uint8_t D           : 1;   // bit 6
-    uint8_t rq          : 1;   // bit 7
-    uint8_t type        : 6;   // bits 0–5
-    uint8_t hdr_ver     : 2;   // bits 6–7
-    uint8_t command;
+    unsigned char instance_id : 5;   // bits 0–4
+    unsigned char rsvd        : 1;   // bit 5
+    unsigned char D           : 1;   // bit 6
+    unsigned char rq          : 1;   // bit 7
+    unsigned char type        : 6;   // bits 0–5
+    unsigned char hdr_ver     : 2;   // bits 6–7
+    unsigned char command;
 };
 #pragma pack(pop)
 
@@ -57,13 +57,13 @@ static int build_i2c_header(u8 llsrc, u8 lldst, u8 *out_buf, unsigned int mctp_l
 }
 
 /* Simulate PLDM response generation (similar to pldm.c) */
-static int handle_pldm_request(const uint8_t *mctp_buf, int len, u8 *resp_buf)
+static int handle_pldm_request(const unsigned char *mctp_buf, int len, u8 *resp_buf)
 {
     struct mctp_hdr *mctp_req_hdr;
     struct pldm_header *req;
     struct mctp_hdr *mctp_hdr_resp;
     struct pldm_header *resp;
-    uint8_t *resp_payload;
+    unsigned char *resp_payload;
     int resp_len;
 
     if (len < sizeof(struct mctp_hdr) + 1 + sizeof(struct pldm_header)) {
