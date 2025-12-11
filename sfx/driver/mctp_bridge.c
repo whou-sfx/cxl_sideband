@@ -198,7 +198,7 @@ static ssize_t mbridge_chr_write(struct file *file, const char __user *buf,
     __mctp_cb(skb);
 
 
-    skb->mac_header = skb->data;
+    skb_reset_mac_header(skb);
     skb_reset_network_header(skb);
 
     mbridge_dev->stats.rx_packets++;
