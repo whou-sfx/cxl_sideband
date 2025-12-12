@@ -82,16 +82,90 @@ static void *host_rx_thread(void *arg) {
     return NULL;
 }
 
+static void print_usage(const char *progname)
+{
+    printf("Usage: %s [options]\n", progname);
+    printf("Options:\n");
+    printf("  --haddr ADDR       Host address (g_lsrc) in hex (default: 0x41)\n");
+    printf("  --daddr ADDR       Device address (g_ldevdst) in hex (default: 0x44)\n");
+    printf("  --freq KHZ         I2C bitrate in kHz (default: 100)\n");
+    printf("  --timeout MS       Slave poll timeout in ms (default: 5000)\n");
+    printf("  --help             Print this help message\n");
+}
+
 int main(int argc, char **argv) {
+    struct i2c_proxy_params params = {
+        .haddr = 0x41,
+        .daddr = 0x44,
+        .freq_khz = 100,
+        .timeout_ms = 5000,
+    };
+
+    /* Parse command line arguments */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--haddr") == 0) {
+            if (i + 1 < argc) {
+                params.haddr = (u8)strtol(argv[i + 1], NULL, 0);
+                i++;
+            } else {
+                fprintf(stderr, "Error: --haddr requires an argument\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--daddr") == 0) {
+            if (i + 1 < argc) {
+                params.daddr = (u8)strtol(argv[i + 1], NULL, 0);
+                i++;
+            } else {
+                fprintf(stderr, "Error: --daddr requires an argument\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--freq") == 0) {
+            if (i + 1 < argc) {
+                params.freq_khz = atoi(argv[i + 1]);
+                if (params.freq_khz <= 0) {
+                    fprintf(stderr, "Error: --freq must be positive\n");
+                    return 1;
+                }
+                i++;
+            } else {
+                fprintf(stderr, "Error: --freq requires an argument\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--timeout") == 0) {
+            if (i + 1 < argc) {
+                params.timeout_ms = atoi(argv[i + 1]);
+                if (params.timeout_ms <= 0) {
+                    fprintf(stderr, "Error: --timeout must be positive\n");
+                    return 1;
+                }
+                i++;
+            } else {
+                fprintf(stderr, "Error: --timeout requires an argument\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        } else {
+            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+
     /* 打开 host device */
     g_host_fd = open(HOST_DEV, O_RDONLY | O_RDWR);
-    if (g_host_fd < 0) { 
-        perror("open host dev"); 
-        return 1; 
+    if (g_host_fd < 0) {
+        perror("open host dev");
+        return 1;
      }
     printf("open %s success\n", HOST_DEV);
 
-    if (i2c_proxy_init()) {
+    if (i2c_proxy_init(&params)) {
         perror("init i2c proxy fail");
         return 1;
     }

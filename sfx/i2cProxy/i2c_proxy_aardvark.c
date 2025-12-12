@@ -14,7 +14,8 @@
 
 /* 配置 */
 #define AARDVARK_PORT 0     /* 或者 detect/枚举 */
-#define I2C_BITRATE_KHZ 100 /* 100kHz/400kHz 等 */
+#define DEFAULT_I2C_BITRATE_KHZ 100 /* 100kHz/400kHz 等 */
+#define DEFAULT_SLAVE_POLL_TIMEOUT_MS 5000
 #define TLV_SEND_TIMEOUT_MS 500
 #define AARDVARK_MTU 256
 
@@ -28,7 +29,11 @@ static pthread_mutex_t aardvark_lock = PTHREAD_MUTEX_INITIALIZER;
 static u8 Aardvark_buf[2][AARDVARK_MTU];
 #define MCTP_I2C_HDR_LEN   (sizeof(struct mctp_i2c_hdr))
 
-u8 g_ldevdst = 0x44, g_lsrc = 0x41;
+/* Configuration parameters */
+static u8 g_ldevdst = 0x44;
+static u8 g_lsrc = 0x41;
+static int g_i2c_bitrate_khz = DEFAULT_I2C_BITRATE_KHZ;
+static int g_slave_poll_timeout_ms = DEFAULT_SLAVE_POLL_TIMEOUT_MS;
 
 /* Aardvark 初始化（Master Write 模式）*/
 static int aardvark_init(void) {
@@ -59,7 +64,7 @@ static int aardvark_init(void) {
     aa_target_power(aardvark, AA_TARGET_POWER_BOTH);
 
     // Setup the bitrate
-    bitrate = aa_i2c_bitrate(aardvark, I2C_BITRATE_KHZ);
+    bitrate = aa_i2c_bitrate(aardvark, g_i2c_bitrate_khz);
     printf("Bitrate set to %d kHz\n", bitrate);
 
     printf("Link Addr Host: (0x%x) <----> Dev (0x%x)\n", g_lsrc, g_ldevdst);
@@ -191,7 +196,7 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
     }
     printf("Enable to Slave mode with Addr 0x%x\n", g_lsrc);
     /* Optimized polling using aa_async_poll with exponential backoff */
-    const int max_poll = 5000; /* ms */
+    const int max_poll = g_slave_poll_timeout_ms; /* ms, configurable */
     const int poll_timeout = 50; /* Max 50ms per poll */
     int elapsed = 0;
     int got = 0;
@@ -371,13 +376,43 @@ int i2c_handle_req_from_host(u8 *mctp_buf, int len) {
 
     return ret;
 }
-int i2c_proxy_init() {
+static void print_i2c_proxy_config(void)
+{
+    printf("I2C Proxy Configuration:\n");
+    printf("  Host address (g_lsrc): 0x%02x\n", g_lsrc);
+    printf("  Device address (g_ldevdst): 0x%02x\n", g_ldevdst);
+    printf("  I2C bitrate: %d kHz\n", g_i2c_bitrate_khz);
+    printf("  Slave poll timeout: %d ms\n", g_slave_poll_timeout_ms);
+}
+
+int i2c_proxy_init(const struct i2c_proxy_params *params) {
+    /* Apply parameters if provided */
+    if (params) {
+        g_lsrc = params->haddr;
+        g_ldevdst = params->daddr;
+        g_i2c_bitrate_khz = params->freq_khz;
+        g_slave_poll_timeout_ms = params->timeout_ms;
+    }
+
+    print_i2c_proxy_config();
+
     if (aardvark_init() != 0) {
         fprintf(stderr, "[ERR]aardvark init fail\n");
         return -1;
     }
 
     return 0;
+}
+
+/* Backward compatibility - use default parameters */
+int i2c_proxy_init_default(void) {
+    struct i2c_proxy_params default_params = {
+        .haddr = 0x41,
+        .daddr = 0x44,
+        .freq_khz = DEFAULT_I2C_BITRATE_KHZ,
+        .timeout_ms = DEFAULT_SLAVE_POLL_TIMEOUT_MS,
+    };
+    return i2c_proxy_init(&default_params);
 }
 
 void i2c_proxy_close() {
