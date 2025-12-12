@@ -155,6 +155,18 @@ pldmtool: Rx: 01 00 02 00 42
     "Response": 66
 }
 
+
+
+#### PLDM Image升级
+
+##查询设备标识符
+ sudo pldmtool fw_update QueryDeviceIdentifiers -m 8 -v
+
+##获取固件参数
+sudo pldmtool fw_update GetFwParams -m 8 -v 
+
+
+
 ### debug by gdb
 tcnsh@ubuntu22:~/whou/src/cxl_sideband/openbmc/pldm$ sudo gdb --args build/pldmtool/pldmtool base GetPLDMVersion -m 8 -t 0 -v
 GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git

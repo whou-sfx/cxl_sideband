@@ -16,7 +16,7 @@
 #define AARDVARK_PORT 0     /* 或者 detect/枚举 */
 #define I2C_BITRATE_KHZ 100 /* 100kHz/400kHz 等 */
 #define TLV_SEND_TIMEOUT_MS 500
-#define AARDVARK_MTU 1024
+#define AARDVARK_MTU 256
 
 #define MCTP_I2C_COMMANDCODE 0x0F
 
@@ -62,6 +62,7 @@ static int aardvark_init(void) {
     bitrate = aa_i2c_bitrate(aardvark, I2C_BITRATE_KHZ);
     printf("Bitrate set to %d kHz\n", bitrate);
 
+    printf("Link Addr Host: (0x%x) <----> Dev (0x%x)\n", g_lsrc, g_ldevdst);
     /* 可设置 pullups, config 等（如需要） */
     return 0;
 }
@@ -188,9 +189,9 @@ static int send_and_wait_response(const u8 *payload, size_t payload_len) {
         pthread_mutex_unlock(&aardvark_lock);
         return -3;
     }
-
+    printf("Enable to Slave mode with Addr 0x%x\n", g_lsrc);
     /* Optimized polling using aa_async_poll with exponential backoff */
-    const int max_poll = 500; /* ms */
+    const int max_poll = 5000; /* ms */
     const int poll_timeout = 50; /* Max 50ms per poll */
     int elapsed = 0;
     int got = 0;
