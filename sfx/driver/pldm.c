@@ -53,7 +53,7 @@ static void build_pldm_resp_hdr(struct pldm_header *resp,
 int handle_pldm_req(const uint8_t *mctp_buf, int len)
 {
     struct mctp_hdr *mctp_req_hdr;
-    unsigned char *buf;
+    const uint8_t *buf;
     struct pldm_header *req;
 
     uint8_t resp_buf[256];
@@ -138,7 +138,7 @@ int handle_pldm_req(const uint8_t *mctp_buf, int len)
            resp->type, resp->command, resp_payload[0]);
 
     printf(" Response Buffer (%d bytes): ", resp_len);
-    print_hex(resp, resp_len - sizeof(struct mctp_hdr) - 1);
+    print_hex((const uint8_t *)resp, resp_len - sizeof(struct mctp_hdr) - 1);
 
     write_to_host(resp_buf, resp_len);
 
