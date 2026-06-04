@@ -2,10 +2,22 @@
 10.33.118.41   现在是连接total phase和logical analyzer
 10.33.118.71   现在是连接Haps，用来program和uart
 
+haps Image: /home/tcn/limin/haps_release_storage_pine_sss_20250923@02-17
+
 ## mctp userspace toolkit
 git clone https://github.com/CodeConstruct/mctp
 
+Ubuntu
+~~~
 sudo apt install -y python3-pytest
+~~~
+
+Centos
+~~~
+pip3 install pytest --user
+~~~
+
+
 
 meson setup build --reconfigure
 meson compile -C build
@@ -29,6 +41,9 @@ sudo apt-get install cmake pkg-config git  systemd-dev
 sudo apt-get install -y libsystemd-dev
 sudo apt install python3-inflection python3-mako python3-yaml
 
+pip3 install mako inflection pyyaml --user
+pip3 install --upgrade meson --user
+
 
 ## Build pldm
 cd plmd
@@ -50,6 +65,9 @@ meson setup build -Dtransport-implementation=af-mctp -Dbuildtype=debug -Dtests=d
 
 ##libpldm
 sudo apt install -y libgmock-dev libgtest-dev
+
+
+sudo dnf install -y gmock-devel gtest-devel
 
 git clone https://github.com/openbmc/libpldm
 cd libpldm
@@ -134,6 +152,14 @@ gdb --args build/pldmtool raw
 (gdb) next          # 执行那一行（即调用完成并返回）
 (gdb) print rc      # 显示返回码
 
+
+## 修复pldmtool 启动异常问题
+## 
+
+sudo mkdir -p /usr/share/libpldm
+sudo ln -s /usr/local/share/libpldm/instance-db /usr/share/libpldm/instance-db
+
+sudo /usr/local/bin/pldmtool --version
 
 
 
