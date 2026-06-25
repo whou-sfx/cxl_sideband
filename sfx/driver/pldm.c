@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "mctp.h"
+#include "util.h"
 
 #define PLDM_TYPE_BASE          0x00
 #define PLDM_CMD_GET_TID        0x02
@@ -26,14 +27,6 @@ struct pldm_header {
 
 };
 #pragma pack(pop)
-
-static void print_hex(const uint8_t *buf, int len)
-{
-    for (int i = 0; i < len; i++) {
-        printf("%02X ", buf[i]);
-    }
-    printf("\n");
-}
 
 // 构建PLDM Response Header
 static void build_pldm_resp_hdr(struct pldm_header *resp,

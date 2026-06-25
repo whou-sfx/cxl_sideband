@@ -3,16 +3,21 @@ obj-m += mctp_bridge.o
 KERNEL_DIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 
-all:
+all: demo send bridge
+
+module:
 	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules
 
 clean:
-	rm -f demo send *.o
-	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
+	rm -f demo send bridge *.o
+	@if [ -d "$(KERNEL_DIR)" ]; then $(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean; fi
 
 
 demo:
 	gcc demo.c pldm.c -o demo
+
+bridge:
+	gcc bridge.c pldm.c -o bridge
 
 send:
 	gcc send.c -o send

@@ -10,6 +10,7 @@
 #include "pldm.h"
 #include "mctp.h"
 #include "cxl_cci.h"
+#include "util.h"
 
 #define DEVICE "/dev/mctp_bridge"
 #define MAX_BUF 2048
@@ -19,45 +20,6 @@
 
 uint8_t cur_tag = 0;
 int g_fd = 0;
-
-
-/* 将字符串中的 hex token 转成 bytes */
-int parse_hex_string(const char *input, uint8_t *output, int max_len)
-{
-    int count = 0;
-    const char *p = input;
-
-    while (*p && count < max_len) {
-        while (*p == ' ' || *p == '\t' || *p == '\n')
-            p++;
-
-        if (!*p)
-            break;
-
-        unsigned int byte;
-        if (sscanf(p, "%02x", &byte) != 1)
-            return -1;
-
-        output[count++] = (uint8_t)byte;
-
-        /* 跳到下一个 token */
-        while (*p && *p != ' ')
-            p++;
-    }
-    return count;
-}
-
-/* 打印 hex buffer */
-void print_hex(const uint8_t *buf, int len)
-{
-    for (int i = 0; i < len; i++) {
-        printf("%02X ", buf[i]);
-        if (i % 16 == 15)
-            printf("\n");
-    }
-    if (len % 16 != 0)
-        printf("\n");
-}
 
 int handle_cci_req(unsigned char *buf, int len)
 {
